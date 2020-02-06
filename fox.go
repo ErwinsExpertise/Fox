@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"hash"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -42,11 +43,25 @@ var (
 
 func init() {
 	secret = os.Getenv("GHTOKEN")
+	if _, err := os.Stat("/var/log/fox"); os.IsNotExist(err) {
+		err := os.Mkdir("/var/log/fox", 0755)
+		if err != nil {
+			log.Panic(err)
+		}
+	}
+
+	logFile, err := os.OpenFile("/var/log/fox/fox.log", os.O_CREATE|os.O_APPEND|os.O_RDWR, 0644)
+	if err != nil {
+		log.Panic(err)
+	}
+	mw := io.MultiWriter(os.Stdout, logFile)
+	log.SetOutput(mw)
 }
 
 func main() {
 	rout := mux.NewRouter()
 	rout.HandleFunc("/updaterepo", UpdateHandler).Methods("POST")
+	rout.HandleFunc("/activity", ActivityHandler).Methods("GET")
 
 	log.Println("Now listening on :1337")
 	log.Println(http.ListenAndServe(":1337", rout))
@@ -73,6 +88,22 @@ func UpdateHandler(w http.ResponseWriter, r *http.Request) {
 		resp.Pusher.Email)
 
 	UpdateRepo(resp.Repository.Name)
+}
+
+func ActivityHandler(w http.ResponseWriter, r *http.Request) {
+	fil, err := os.Open("/var/log/fox/fox.log")
+	if err != nil {
+		log.Println(err)
+	}
+
+	defer fil.Close()
+
+	output, err := ioutil.ReadAll(fil)
+	if err != nil {
+		log.Println(err)
+	}
+
+	w.Write(output)
 }
 
 func UpdateRepo(project string) {
